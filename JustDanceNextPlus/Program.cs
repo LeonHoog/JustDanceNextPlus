@@ -10,6 +10,7 @@ using JustDanceNextPlus.Utilities;
 using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.FileProviders;
 
 namespace JustDanceNextPlus;
 
@@ -33,7 +34,7 @@ public class Program
 		// Ensure the maps folder exists.
 		Directory.CreateDirectory(builder.Configuration["Paths:MapsPath"]!);
 
-		WebApplication app = builder.Build();
+        WebApplication app = builder.Build();
 
 		// Ensure the database is created.
 		InitializeDatabase(app);
@@ -140,46 +141,56 @@ public class Program
 		dbContext.Database.EnsureCreated();
 	}
 
-	private static void ConfigureMiddleware(WebApplication app)
-	{
-		if (app.Environment.IsDevelopment())
-		{
-			app.UseSwagger();
-			app.UseSwaggerUI();
-		}
+    private static void ConfigureMiddleware(WebApplication app)
+    {
+        if (app.Environment.IsDevelopment())
+        {
+            app.UseSwagger();
+            app.UseSwaggerUI();
+        }
 
-		app.UseHttpsRedirection();
-		app.UseResponseCompression();
+        app.UseHttpsRedirection();
+        app.UseResponseCompression();
 
-		// Configure static file serving with custom content types.
-		FileExtensionContentTypeProvider provider = new();
-		provider.Mappings[".bundle"] = "application/octet-stream";
-		provider.Mappings[".webm"] = "video/webm";
-		provider.Mappings[".opus"] = "audio/opus";
+        // Configure static file serving with custom content types.
+        FileExtensionContentTypeProvider provider = new();
+        provider.Mappings[".bundle"] = "application/octet-stream";
+        provider.Mappings[".webm"] = "video/webm";
+        provider.Mappings[".opus"] = "audio/opus";
 
-		app.UseStaticFiles(new StaticFileOptions
-		{
-			ContentTypeProvider = provider
-		});
+        // Default static files middleware
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            ContentTypeProvider = provider
+        });
 
-		// Cache static files if not in development environment.
-		if (!app.Environment.IsDevelopment())
-		{
-			app.Use(async (context, next) =>
-			{
-				context.Response.GetTypedHeaders().CacheControl =
-					new Microsoft.Net.Http.Headers.CacheControlHeaderValue
-					{
-						Public = true,
-						MaxAge = TimeSpan.FromMinutes(5)
-					};
-				await next();
-			});
-		}
+        // Add external maps middleware
+        app.UseStaticFiles(new StaticFileOptions
+        {
+            FileProvider = new PhysicalFileProvider(
+                app.Configuration["Paths:MapsPath"]!),
+            RequestPath = "/maps",
+            ContentTypeProvider = provider
+        });
 
-		app.MapControllers();
-		app.MapGraphQL("/profile/v3/graphql");
-	}
+        // Cache static files if not in development environment.
+        if (!app.Environment.IsDevelopment())
+        {
+            app.Use(async (context, next) =>
+            {
+                context.Response.GetTypedHeaders().CacheControl =
+                    new Microsoft.Net.Http.Headers.CacheControlHeaderValue
+                    {
+                        Public = true,
+                        MaxAge = TimeSpan.FromMinutes(5)
+                    };
+                await next();
+            });
+        }
+
+        app.MapControllers();
+        app.MapGraphQL("/profile/v3/graphql");
+    }
 
 	public static bool CheckJsonExistance(string jsonPath)
 	{
